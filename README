@@ -1,0 +1,10 @@
+Prerequisites:
+    bash
+    curl
+    wget
+    jshon
+
+
+bash script to upgrade installed packages from AUR
+
+License: GNU GPL v3

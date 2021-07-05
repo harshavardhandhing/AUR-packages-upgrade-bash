@@ -1,0 +1,152 @@
+#!/bin/bash
+
+##Check for AUR package updates##
+check_package_updates() {
+	index=0
+	touch list.txt
+	touch list_versions.txt
+	cp /dev/null list.txt
+	cp /dev/null list_versions.txt
+
+	for i in $(pacman -Qqm); do
+		ver="$(curl -s "https://aur.archlinux.org/rpc/?v=5&type=info&arg\[\]=$i" | jshon -e results -a -e Version -u)"
+
+		if [ "$(vercmp $(pacman -Q $i | cut -d" " -f2) $ver)" != 0 ]; then
+			echo "$ver" >>list_versions.txt
+			echo "$i" >>list.txt
+			let index+=1
+		fi
+	done
+
+	
+	if [ $index != 0 ]; then
+
+		echo ":: Following $index AUR packages can be updated:"
+		index=0
+		while read i; do
+			let index+=1
+			echo -n "($index) $i "
+		done <list.txt
+
+		echo -e "\n"
+		return 0
+	else
+		echo " there is nothing to do"
+		return 1
+	fi
+}
+
+##PROMPT USER FOR SELECTION##
+select_packages() {
+	read -p "Enter a selection (default=all): " numbers
+	lastIndex=$(wc -l list.txt | awk '{print $1}')
+	last=$lastIndex
+	let lastIndex+=1
+
+	for i in $numbers; do
+		if ! [[ $i =~ ^[0-9]+$ ]]; then
+			echo -e "error: invalid number: $i\n"
+			return 1
+		fi
+
+		if [ $i -lt 1 ] || [ $i -ge $lastIndex ]; then
+			echo -e "error: invalid value: $i is not between 1 and $last\n"
+			return 1
+		fi
+
+	done
+
+	numbers=$(echo $numbers | xargs -n1 | sort | xargs)
+	lenOfnumbers=${#numbers}
+
+	if ! [ $lenOfnumbers -eq 0 ]; then
+		selection=$numbers
+	fi
+	return 0
+}
+
+##Download AUR git tar.gz files and extract them##
+download_AURS() {
+
+	length=0
+	str=''
+	for i in $selection; do
+
+		let length+=1
+	done
+	echo
+	echo -n "Packages ($length) "
+
+	for i in $selection; do
+		echo -n "$(head -$i list.txt | tail -1)"
+		echo -n "$(head -$i list_versions.txt | tail -1)  "
+	done
+
+	echo -e "\n"
+
+	for i in $selection; do
+		pkgName="$(head -$i list.txt | tail -1)"
+		wget -q --show-progress https://aur.archlinux.org/cgit/aur.git/snapshot/$pkgName.tar.gz
+	done
+
+	#Extract tar.gz to AUR files
+	echo "Extracting AUR packages"
+	for i in $(echo *.tar.gz); do
+		tar -xvf $i
+	done
+}
+
+##Building and Installing using makepkg and pacman##
+install() {
+
+	echo "Building AUR packages"
+	for i in $selection; do
+		package=$(head -$i "$TemporaryDirectory/list.txt" | tail -1)
+
+		cd "$TemporaryDirectory/$package" && echo "$package" && makepkg -sr
+	done
+
+	cd ..
+
+	echo "Installing AUR packages"
+	find . -name '*pkg.tar.zst' -exec sudo pacman -U {} +
+
+}
+
+##Clean the Temporary Directory by deleting it##
+clean() {
+	echo -n "Removing temporary directory $TemporaryDirectory and changing directory "
+	popd
+	rm -rf $TemporaryDirectory
+	exit 0
+
+}
+
+TemporaryDirectory=$(mktemp -d)
+echo -n "Working in a temporary directory "
+pushd $TemporaryDirectory
+echo ":: Starting AUR packages upgrade..."
+
+check_package_updates
+if [[ $? == 0 ]]; then
+	#selection variable used in functions : select_packages, download_AURS #default
+	ind=0
+	selection=''
+	while read i; do
+		let ind+=1
+		selection+=$ind' '
+
+	done <list.txt
+	select_packages
+
+	#loop for user input if input is invalid
+	while [[ $? != 0 ]]; do
+		select_packages
+	done
+
+	download_AURS
+	install
+
+fi
+
+clean
