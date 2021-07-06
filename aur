@@ -5,8 +5,7 @@ check_package_updates() {
 	index=0
 	touch list.txt
 	touch list_versions.txt
-	cp /dev/null list.txt
-	cp /dev/null list_versions.txt
+
 
 	for i in $(pacman -Qqm); do
 		ver="$(curl -s "https://aur.archlinux.org/rpc/?v=5&type=info&arg\[\]=$i" | jshon -e results -a -e Version -u)"
